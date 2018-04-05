@@ -10,22 +10,16 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Properties;
 
 import org.apache.accumulo.core.cli.BatchWriterOpts;
 import org.apache.accumulo.core.cli.ClientOnRequiredTable;
-import org.apache.accumulo.core.client.AccumuloException;
-import org.apache.accumulo.core.client.AccumuloSecurityException;
-import org.apache.accumulo.core.client.BatchWriter;
-import org.apache.accumulo.core.client.Connector;
-import org.apache.accumulo.core.client.Instance;
-import org.apache.accumulo.core.client.MutationsRejectedException;
-import org.apache.accumulo.core.client.Scanner;
-import org.apache.accumulo.core.client.TableExistsException;
-import org.apache.accumulo.core.client.TableNotFoundException;
-import org.apache.accumulo.core.client.ZooKeeperInstance;
+import org.apache.accumulo.core.client.*;
 import org.apache.accumulo.core.client.admin.TableOperations;
 import org.apache.accumulo.core.client.mock.MockInstance;
+import org.apache.accumulo.core.client.security.tokens.KerberosToken;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
+import org.apache.accumulo.core.conf.AccumuloConfiguration;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Value;
@@ -36,6 +30,7 @@ import org.apache.accumulo.minicluster.MiniAccumuloCluster;
 public class IngestSipp {
 	
 	private static final SimpleDateFormat frm = new SimpleDateFormat("yyyy-MM-dd");
+	private static final String SIPP_DATA = "sipp_sample_data.csv";
 	private BatchWriter batchWriter;
 	private InputStream fileInputStream;
 	private final ColumnVisibility vis = new ColumnVisibility();
@@ -44,7 +39,8 @@ public class IngestSipp {
 	
 	private List<String> attributes = new ArrayList<>();
 	private static Instance instance;
-	
+
+	private static ClientConfig clientConfig = null;
 	
 	public static void main(String[] args) throws AccumuloException, AccumuloSecurityException, TableNotFoundException, IOException {
 				
@@ -63,29 +59,32 @@ public class IngestSipp {
 //		
 //		load.batchWriter.flush();
 		
-		IngestSipp sipp = new IngestSipp();
+		IngestSipp sipp = new IngestSipp(args);
+
 		sipp.bootstrap();
 		//sipp.loadSippData();
 		
 		
 	}
 	
-	public IngestSipp() {
-		
+	public IngestSipp(String[] args) {
+		loadConfiguration(args);
 	}
-	
+
+	private void loadConfiguration(String[] args) {
+		if (args.length == 0) {
+			System.err.println("Properties file required");
+			System.exit(1);
+		}
+
+		clientConfig = new ClientConfig(args);
+
+	}
+
 	public Instance getInstance() {
 		if(instance == null) {
-//			MiniAccumuloCluster accumulo;
-//			try {
-//				accumulo = new MiniAccumuloCluster(new File("Z:\\gleec001\\accumulo"), "password");
-//				accumulo.start();
-//			} catch (IOException | InterruptedException e) {
-//				throw new RuntimeException(e);
-//			}
-			
-//			instance = new ZooKeeperInstance(accumulo.getInstanceName(), accumulo.getZooKeepers());
-			instance = new MockInstance("testinstance");
+			instance = new ZooKeeperInstance(clientConfig.getInstanceName(), clientConfig.getZookeepers());
+//			instance = new MockInstance();
 		}
 		
 		return instance;
@@ -95,13 +94,13 @@ public class IngestSipp {
 		
 		
 		try {
-			return getInstance().getConnector("root", new PasswordToken("password"));
-		} catch (AccumuloException | AccumuloSecurityException e) {
-			// TODO Auto-generated catch block
+
+			Connector connector = getInstance().getConnector(clientConfig.getPrincipal(),
+					new KerberosToken(clientConfig.getPrincipal(), new File(clientConfig.getKeytab()), true));
+			return connector;
+		} catch (AccumuloException | AccumuloSecurityException | IOException e) {
 			throw new RuntimeException(e);
 		}
-		
-		
 	}
 	
 	private void bootstrap() throws IOException {
@@ -146,7 +145,7 @@ public class IngestSipp {
 		BatchWriter writer = getBatchWriter(SIPP_TABLENAME);
 		
 		BufferedReader reader = new BufferedReader(
-				new FileReader(IngestSipp.class.getClassLoader().getResource("sipp_attributes.txt").getPath()));
+				new FileReader(IngestSipp.class.getClassLoader().getResource(SIPP_DATA).getPath()));
 		
 		String line;
 				
@@ -158,8 +157,8 @@ public class IngestSipp {
 			String[] fields = line.split(",");
 			for(int i = 0; i < fields.length; i++) {
 				mutation.put("attributes", attributes.get(i), fields[i]);
-				writer.addMutation(mutation);
 			}
+			writer.addMutation(mutation);
 		}
 		
 		writer.flush();
@@ -197,7 +196,7 @@ public class IngestSipp {
 	private void createSippTable() {
 		TableOperations ops = getConnector().tableOperations();
 		
-		if(ops.exists(SIPP_TABLENAME)) {
+		if(!ops.exists(SIPP_TABLENAME)) {
 			try {
 				ops.create(SIPP_TABLENAME);
 			} catch (AccumuloException | AccumuloSecurityException | TableExistsException e) {
@@ -207,5 +206,39 @@ public class IngestSipp {
 		}
 		
 	}
+
+	private class ClientConfig extends Properties {
+
+		public ClientConfig(String[] args) {
+			try {
+				this.load(new FileReader(args[0]));
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
+		}
+
+		public String getTableName() {
+			return getProperty("sipp.table.name");
+		}
+
+		public String getPrincipal() {
+			return getProperty("principal");
+		}
+
+		public String getKeytab() {
+			return getProperty("keytab");
+		}
+
+		public String getZookeepers() {
+			return getProperty("zookeepers");
+		}
+
+		public String getInstanceName() {
+			return getProperty("instance.name");
+		}
+
+
+	}
+
 
 }
