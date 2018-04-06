@@ -1,48 +1,32 @@
 package sipp;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.InputStream;
+import org.apache.accumulo.core.cli.BatchWriterOpts;
+import org.apache.accumulo.core.client.*;
+import org.apache.accumulo.core.client.admin.TableOperations;
+import org.apache.accumulo.core.client.security.tokens.KerberosToken;
+import org.apache.accumulo.core.data.Key;
+import org.apache.accumulo.core.data.Mutation;
+import org.apache.accumulo.core.data.Value;
+import org.apache.accumulo.core.security.Authorizations;
+import org.apache.accumulo.core.security.ColumnVisibility;
+
+import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Properties;
 
-import org.apache.accumulo.core.cli.BatchWriterOpts;
-import org.apache.accumulo.core.cli.ClientOnRequiredTable;
-import org.apache.accumulo.core.client.*;
-import org.apache.accumulo.core.client.admin.TableOperations;
-import org.apache.accumulo.core.client.mock.MockInstance;
-import org.apache.accumulo.core.client.security.tokens.KerberosToken;
-import org.apache.accumulo.core.client.security.tokens.PasswordToken;
-import org.apache.accumulo.core.conf.AccumuloConfiguration;
-import org.apache.accumulo.core.data.Key;
-import org.apache.accumulo.core.data.Mutation;
-import org.apache.accumulo.core.data.Value;
-import org.apache.accumulo.core.security.Authorizations;
-import org.apache.accumulo.core.security.ColumnVisibility;
-import org.apache.accumulo.minicluster.MiniAccumuloCluster;
-
 public class IngestSipp {
 	
 	private static final SimpleDateFormat frm = new SimpleDateFormat("yyyy-MM-dd");
-	private static final String SIPP_DATA = "sipp_sample_data.csv";
-	private BatchWriter batchWriter;
-	private InputStream fileInputStream;
-	private final ColumnVisibility vis = new ColumnVisibility();
-	
-	private static final String SIPP_TABLENAME = "sipp";
-	
+
 	private List<String> attributes = new ArrayList<>();
 	private static Instance instance;
 
 	private static ClientConfig clientConfig = null;
 	
-	public static void main(String[] args) throws AccumuloException, AccumuloSecurityException, TableNotFoundException, IOException {
+	public static void main(String[] args) throws IOException {
 				
 //		ClientOnRequiredTable opts = new ClientOnRequiredTable();
 //		
@@ -66,7 +50,8 @@ public class IngestSipp {
 		
 		
 	}
-	
+
+
 	public IngestSipp(String[] args) {
 		loadConfiguration(args);
 	}
