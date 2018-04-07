@@ -2,7 +2,9 @@ package sipp;
 
 import org.apache.accumulo.core.cli.BatchWriterOpts;
 import org.apache.accumulo.core.client.*;
+import org.apache.accumulo.core.client.admin.DelegationTokenConfig;
 import org.apache.accumulo.core.client.admin.TableOperations;
+import org.apache.accumulo.core.client.security.tokens.DelegationToken;
 import org.apache.accumulo.core.client.security.tokens.KerberosToken;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Mutation;
@@ -11,6 +13,11 @@ import org.apache.accumulo.core.security.Authorizations;
 import org.apache.accumulo.core.security.ColumnVisibility;
 
 import java.io.*;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,27 +34,10 @@ public class IngestSipp {
 	private static ClientConfig clientConfig = null;
 	
 	public static void main(String[] args) throws IOException {
-				
-//		ClientOnRequiredTable opts = new ClientOnRequiredTable();
-//		
-//		opts.parseArgs("Accumulo Load Symbol", args, new Object[]{});
-//		
-//		BatchWriterOpts bopts = new BatchWriterOpts();
-//		IngestSipp load = new IngestSipp();
-//		Connector con = opts.getConnector();
-//		
-//		load.batchWriter = con.createBatchWriter(opts.getTableName(), bopts.getBatchWriterConfig());
-//		
-//		for (SymbolLine sl : load.getAllSymbolLinesFromFile()) 
-//			load.batchWriter.addMutation(load.createMutation(sl.getSymbol(), sl.getDate(), sl.getAttibute(), sl.getValue()));
-//		
-//		load.batchWriter.flush();
-		
+						
 		IngestSipp sipp = new IngestSipp(args);
-
 		sipp.bootstrap();
-		//sipp.loadSippData();
-		
+	
 		
 	}
 
@@ -69,7 +59,6 @@ public class IngestSipp {
 	public Instance getInstance() {
 		if(instance == null) {
 			instance = new ZooKeeperInstance(clientConfig.getInstanceName(), clientConfig.getZookeepers());
-//			instance = new MockInstance();
 		}
 		
 		return instance;
@@ -77,11 +66,12 @@ public class IngestSipp {
 	
 	public Connector getConnector() {
 		
-		
 		try {
 
-			Connector connector = getInstance().getConnector(clientConfig.getPrincipal(),
-					new KerberosToken(clientConfig.getPrincipal(), new File(clientConfig.getKeytab()), true));
+			KerberosToken kt = new KerberosToken();
+			
+			Connector connector = getInstance().getConnector(clientConfig.getPrincipal(), kt);
+			//DelegationToken dt = connector.securityOperations().getDelegationToken(new DelegationTokenConfig());
 			return connector;
 		} catch (AccumuloException | AccumuloSecurityException | IOException e) {
 			throw new RuntimeException(e);
@@ -89,6 +79,9 @@ public class IngestSipp {
 	}
 	
 	private void bootstrap() throws IOException {
+		if(!validate())
+			System.exit(1);
+		
 		createSippTable();
 		
 		try {
@@ -104,9 +97,27 @@ public class IngestSipp {
 		
 	}
 
+	private boolean validate() {
+		Path attrFile = FileSystems.getDefault().getPath(clientConfig.getProperty("attributes.filename"));
+		Path sippFile = FileSystems.getDefault().getPath(clientConfig.getProperty("sipp.data.filename"));
+		
+		if(!Files.exists(attrFile, LinkOption.NOFOLLOW_LINKS)) {
+			System.out.println("Missing attributes file: " + attrFile.toString());
+			return false;
+		}
+		
+		if(!Files.exists(sippFile, LinkOption.NOFOLLOW_LINKS)) {
+			System.out.println("Missing sipp data csv file: " + sippFile.toString());
+			return false;
+		}
+		
+		return true;
+	}
+
+
 	private void readSippData() {
 		try {
-			Scanner scanner = getConnector().createScanner(SIPP_TABLENAME, new Authorizations());
+			Scanner scanner = getConnector().createScanner(clientConfig.getTableName(), new Authorizations());
 			for(Entry<Key, Value> entry: scanner) {
 				Key k = entry.getKey();
 				Value v = entry.getValue();
@@ -127,10 +138,10 @@ public class IngestSipp {
 		// Fetch data
 		loadAttributesFromFile();
 		
-		BatchWriter writer = getBatchWriter(SIPP_TABLENAME);
+		BatchWriter writer = getBatchWriter(clientConfig.getTableName());
 		
 		BufferedReader reader = new BufferedReader(
-				new FileReader(IngestSipp.class.getClassLoader().getResource(SIPP_DATA).getPath()));
+				new FileReader(clientConfig.getProperty("sipp.data.filename")));
 		
 		String line;
 				
@@ -155,7 +166,7 @@ public class IngestSipp {
 	private BatchWriter getBatchWriter(String tablename) {
 		BatchWriterOpts bwOpts = new BatchWriterOpts();
 		try {
-			return getConnector().createBatchWriter(SIPP_TABLENAME, bwOpts.getBatchWriterConfig());
+			return getConnector().createBatchWriter(clientConfig.getTableName(), bwOpts.getBatchWriterConfig());
 		} catch (TableNotFoundException e) {
 			throw new RuntimeException(e);
 		}
@@ -164,7 +175,7 @@ public class IngestSipp {
 	
 	private void loadAttributesFromFile() throws IOException {
 		BufferedReader reader = new BufferedReader(
-				new FileReader(IngestSipp.class.getClassLoader().getResource("sipp_attributes.txt").getPath()));
+				new FileReader(clientConfig.getProperty("attributes.filename")));
 				
 		String line;
 		while((line = reader.readLine()) != null) {
@@ -181,9 +192,9 @@ public class IngestSipp {
 	private void createSippTable() {
 		TableOperations ops = getConnector().tableOperations();
 		
-		if(!ops.exists(SIPP_TABLENAME)) {
+		if(!ops.exists(clientConfig.getTableName())) {
 			try {
-				ops.create(SIPP_TABLENAME);
+				ops.create(clientConfig.getTableName());
 			} catch (AccumuloException | AccumuloSecurityException | TableExistsException e) {
 				// fail fast
 				throw new RuntimeException(e);
@@ -193,6 +204,8 @@ public class IngestSipp {
 	}
 
 	private class ClientConfig extends Properties {
+
+		private static final long serialVersionUID = 1L;
 
 		public ClientConfig(String[] args) {
 			try {
