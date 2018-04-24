@@ -11,6 +11,7 @@ import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.accumulo.core.security.ColumnVisibility;
+import org.apache.hadoop.conf.Configuration;
 
 import java.io.*;
 import java.nio.file.FileSystems;
@@ -33,12 +34,11 @@ public class IngestSipp {
 
 	private static ClientConfig clientConfig = null;
 	
-	public static void main(String[] args) throws IOException {
-						
-		IngestSipp sipp = new IngestSipp(args);
-		sipp.bootstrap();
+	private Configuration conf = null;
 	
-		
+	public static void main(String[] args) throws IOException {
+		IngestSipp sipp = new IngestSipp(args);
+		sipp.bootstrap();		
 	}
 
 
@@ -68,8 +68,8 @@ public class IngestSipp {
 		
 		try {
 
-			KerberosToken kt = new KerberosToken();
-			
+			KerberosToken kt = new KerberosToken(clientConfig.getPrincipal(), new File(clientConfig.getKeytab()), false);
+						
 			Connector connector = getInstance().getConnector(clientConfig.getPrincipal(), kt);
 			//DelegationToken dt = connector.securityOperations().getDelegationToken(new DelegationTokenConfig());
 			return connector;
@@ -81,6 +81,22 @@ public class IngestSipp {
 	private void bootstrap() throws IOException {
 		if(!validate())
 			System.exit(1);
+		
+		conf = new Configuration();
+//		System.err.println(IngestSipp.class.getResourceAsStream("/etc/hadoop/conf/core-site.xml") != null);
+//		System.err.println(IngestSipp.class.getResourceAsStream("/etc/accumulo/conf/accumulo-site.xml") != null);
+//		System.err.println(IngestSipp.class.getResourceAsStream("./core-site.xml") != null);
+//		System.err.println(IngestSipp.class.getResourceAsStream("./accumulo-site.xml") != null);
+//		System.err.println(IngestSipp.class.getResourceAsStream("core-site.xml") != null);
+//		System.err.println(IngestSipp.class.getResourceAsStream("accumulo-site.xml") != null);
+//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("/etc/hadoop/conf/core-site.xml") != null);
+//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("/etc/accumulo/conf/accumulo-site.xml") != null);
+//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("./core-site.xml") != null);
+//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("./accumulo-site.xml") != null);
+//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("core-site.xml") != null);
+//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("accumulo-site.xml") != null);
+		conf.addResource(IngestSipp.class.getClassLoader().getResourceAsStream("core-site.xml"));
+		conf.addResource(IngestSipp.class.getClassLoader().getResourceAsStream("accumulo-site.xml"));
 		
 		createSippTable();
 		
