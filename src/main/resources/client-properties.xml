@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+	<property>
+		<name>sipp.table.name</name>
+		<value>sipp</value>
+	</property>
+	<property>
+		<name>instance.name</name>
+		<value>hdp-accumulo-instance</value>
+	</property>
+	<property>
+		<name>zookeepers</name>
+		<value>cat-test0013-m.csp2.census.gov,cat-test0014-m.csp2.census.gov,cat-test0015-m.csp2.census.gov</value>
+	</property>
+	<property>
+		<name>principal</name>
+		<value>hive/cat-test0015-m.csp2.census.gov@BOC.AD.CENSUS.GOV</value>
+	</property>
+	<property>
+		<name>keytab</name>
+		<value>/etc/security/keytabs/hive.service.keytab</value>
+	</property>
+	<property>
+		<name>attributes.filename</name>
+		<value>Z:\gleec001\programs\AccumuloIngest\src\main\resources\sipp_attributes.txt</value>
+	</property>
+	<property>
+		<name>sipp.data.filename.filename</name>
+		<value>Z:\gleec001\programs\AccumuloIngest\src\main\resources\sipp_sample_data.csv</value>
+	</property>
+	<property>
+		<name>input.path</name>
+		<value>/user/accumulo/test</value>
+	</property>
+	<property>
+		<name>sipp.table.splits</name>
+		<value>1,2,3</value>
+	</property>
+</configuration>

@@ -1,29 +1,41 @@
 package sipp;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map.Entry;
+
 import org.apache.accumulo.core.cli.BatchWriterOpts;
-import org.apache.accumulo.core.client.*;
-import org.apache.accumulo.core.client.admin.DelegationTokenConfig;
+import org.apache.accumulo.core.client.AccumuloException;
+import org.apache.accumulo.core.client.AccumuloSecurityException;
+import org.apache.accumulo.core.client.BatchWriter;
+import org.apache.accumulo.core.client.Connector;
+import org.apache.accumulo.core.client.Instance;
+import org.apache.accumulo.core.client.MutationsRejectedException;
+import org.apache.accumulo.core.client.Scanner;
+import org.apache.accumulo.core.client.TableExistsException;
+import org.apache.accumulo.core.client.TableNotFoundException;
+import org.apache.accumulo.core.client.ZooKeeperInstance;
+import org.apache.accumulo.core.client.admin.SecurityOperations;
 import org.apache.accumulo.core.client.admin.TableOperations;
-import org.apache.accumulo.core.client.security.tokens.DelegationToken;
 import org.apache.accumulo.core.client.security.tokens.KerberosToken;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
-import org.apache.accumulo.core.security.ColumnVisibility;
+import org.apache.accumulo.core.security.SystemPermission;
+import org.apache.accumulo.core.security.TablePermission;
 import org.apache.hadoop.conf.Configuration;
 
-import java.io.*;
-import java.nio.file.FileSystems;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map.Entry;
-import java.util.Properties;
+import conf.ClientConfig;
 
 public class IngestSipp {
 	
@@ -69,9 +81,7 @@ public class IngestSipp {
 		try {
 
 			KerberosToken kt = new KerberosToken(clientConfig.getPrincipal(), new File(clientConfig.getKeytab()), false);
-						
 			Connector connector = getInstance().getConnector(clientConfig.getPrincipal(), kt);
-			//DelegationToken dt = connector.securityOperations().getDelegationToken(new DelegationTokenConfig());
 			return connector;
 		} catch (AccumuloException | AccumuloSecurityException | IOException e) {
 			throw new RuntimeException(e);
@@ -82,29 +92,13 @@ public class IngestSipp {
 		if(!validate())
 			System.exit(1);
 		
-		conf = new Configuration();
-//		System.err.println(IngestSipp.class.getResourceAsStream("/etc/hadoop/conf/core-site.xml") != null);
-//		System.err.println(IngestSipp.class.getResourceAsStream("/etc/accumulo/conf/accumulo-site.xml") != null);
-//		System.err.println(IngestSipp.class.getResourceAsStream("./core-site.xml") != null);
-//		System.err.println(IngestSipp.class.getResourceAsStream("./accumulo-site.xml") != null);
-//		System.err.println(IngestSipp.class.getResourceAsStream("core-site.xml") != null);
-//		System.err.println(IngestSipp.class.getResourceAsStream("accumulo-site.xml") != null);
-//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("/etc/hadoop/conf/core-site.xml") != null);
-//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("/etc/accumulo/conf/accumulo-site.xml") != null);
-//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("./core-site.xml") != null);
-//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("./accumulo-site.xml") != null);
-//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("core-site.xml") != null);
-//		System.err.println(IngestSipp.class.getClassLoader().getResourceAsStream("accumulo-site.xml") != null);
-		conf.addResource(IngestSipp.class.getClassLoader().getResourceAsStream("core-site.xml"));
-		conf.addResource(IngestSipp.class.getClassLoader().getResourceAsStream("accumulo-site.xml"));
-		
 		createSippTable();
 		
 		try {
 			loadSippData();
 			
 			// Print out the table information
-			readSippData();
+			//readSippData();
 		} catch (MutationsRejectedException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -155,7 +149,7 @@ public class IngestSipp {
 		loadAttributesFromFile();
 		
 		BatchWriter writer = getBatchWriter(clientConfig.getTableName());
-		
+				
 		BufferedReader reader = new BufferedReader(
 				new FileReader(clientConfig.getProperty("sipp.data.filename")));
 		
@@ -168,9 +162,10 @@ public class IngestSipp {
 			Mutation mutation = new Mutation(rowId);
 			String[] fields = line.split(",");
 			for(int i = 0; i < fields.length; i++) {
-				mutation.put("attributes", attributes.get(i), fields[i]);
+				mutation.put("attributes", attributes.get(i), fields[i].trim());
 			}
 			writer.addMutation(mutation);
+			if(rowCounter % 100 == 0) System.out.println("...added " + rowCounter );
 		}
 		
 		writer.flush();
@@ -195,7 +190,7 @@ public class IngestSipp {
 				
 		String line;
 		while((line = reader.readLine()) != null) {
-			attributes.add(line);
+			attributes.add(line.trim());
 		}
 		
 		reader.close();
@@ -206,53 +201,29 @@ public class IngestSipp {
 	 * exist
 	 */
 	private void createSippTable() {
-		TableOperations ops = getConnector().tableOperations();
+		TableOperations tableOps = getConnector().tableOperations();
+		SecurityOperations secOps = getConnector().securityOperations();
 		
-		if(!ops.exists(clientConfig.getTableName())) {
-			try {
-				ops.create(clientConfig.getTableName());
-			} catch (AccumuloException | AccumuloSecurityException | TableExistsException e) {
-				// fail fast
-				throw new RuntimeException(e);
+		
+		try {
+			if (!tableOps.exists(clientConfig.getTableName())) {
+				tableOps.create(clientConfig.getTableName());
 			}
-		}
+			
+			// set the correct permissions
+			secOps.grantTablePermission(clientConfig.getPrincipal(), clientConfig.getTableName(), TablePermission.READ);
+			secOps.grantTablePermission(clientConfig.user(), clientConfig.getTableName(), TablePermission.WRITE);
+			secOps.grantSystemPermission(clientConfig.getPrincipal(), SystemPermission.OBTAIN_DELEGATION_TOKEN);
+			
+
+		} catch (AccumuloException | AccumuloSecurityException | TableExistsException e) {
+			// fail fast
+			throw new RuntimeException(e);
+		}	
+		
 		
 	}
 
-	private class ClientConfig extends Properties {
-
-		private static final long serialVersionUID = 1L;
-
-		public ClientConfig(String[] args) {
-			try {
-				this.load(new FileReader(args[0]));
-			} catch (IOException e) {
-				throw new RuntimeException(e);
-			}
-		}
-
-		public String getTableName() {
-			return getProperty("sipp.table.name");
-		}
-
-		public String getPrincipal() {
-			return getProperty("principal");
-		}
-
-		public String getKeytab() {
-			return getProperty("keytab");
-		}
-
-		public String getZookeepers() {
-			return getProperty("zookeepers");
-		}
-
-		public String getInstanceName() {
-			return getProperty("instance.name");
-		}
-
-
-	}
-
+	
 
 }
